@@ -54,6 +54,19 @@
   animation-name: slide-in-from-bottom;
 }
 
+@keyframes spin-slow {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.animate-spin-slow {
+  animation: spin-slow 2s linear infinite;
+}
+
 /* Prevent text selection on UI elements */
 .select-none {
   user-select: none;

@@ -5,13 +5,13 @@ import type { ClaudeSpawnOptions } from './electron.d'
 
 function App() {
   // Folder and Claude status
-  const [folderPath, setFolderPath] = useState('')
+  const [folderPath, setFolderPath] = useState('C:\\Users\\Developer\\Desktop\\Arcadia')
   const [isClaudeInstalled, setIsClaudeInstalled] = useState<boolean | null>(null)
   const [claudeVersion, setClaudeVersion] = useState<string | null>(null)
   const [statusMessage, setStatusMessage] = useState<string | null>(null)
 
   // Settings
-  const [model, setModel] = useState('sonnet')
+  const [model, setModel] = useState('haiku')
   const [permissionMode, setPermissionMode] = useState<ClaudeSpawnOptions['permissionMode']>('acceptEdits')
   const [useStreaming, setUseStreaming] = useState(true)
 
@@ -110,11 +110,13 @@ function App() {
         isStreaming={claude.isStreaming}
         error={claude.error}
         streamingText={claude.streamingText}
+        toolActivities={claude.toolActivities}
         onSend={handleSendMessage}
         onCancel={claude.cancel}
         onClearError={claude.clearError}
         disabled={!folderPath || !isClaudeInstalled}
         folderPath={folderPath}
+        defaultMessage="Read the package.json and tell me the version"
       />
 
       {/* Status toast */}

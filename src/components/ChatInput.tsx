@@ -7,6 +7,7 @@ interface ChatInputProps {
   isStreaming: boolean
   disabled?: boolean
   placeholder?: string
+  defaultValue?: string
 }
 
 export function ChatInput({
@@ -16,8 +17,9 @@ export function ChatInput({
   isStreaming,
   disabled,
   placeholder = 'Ask Claude...',
+  defaultValue = '',
 }: ChatInputProps) {
-  const [input, setInput] = useState('')
+  const [input, setInput] = useState(defaultValue)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
 
   // Auto-resize textarea

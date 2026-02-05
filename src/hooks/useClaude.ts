@@ -1,13 +1,28 @@
 import { useState, useCallback, useEffect, useRef } from 'react'
 import type { ClaudeSpawnOptions, ClaudeResponse } from '../electron.d'
 
+export interface ToolActivity {
+  id: string
+  toolName: string
+  status: 'pending' | 'running' | 'completed' | 'error'
+  input?: Record<string, unknown>
+  output?: string
+  startTime: Date
+  endTime?: Date
+  textPosition?: number // Position in streaming text where this tool was inserted
+}
+
+export type ContentBlock =
+  | { type: 'text'; text: string }
+  | { type: 'tool'; activity: ToolActivity }
+
 export interface Message {
   id: string
   role: 'user' | 'assistant' | 'system'
-  content: string
+  content: string // Keep for backward compat and simple messages
+  contentBlocks?: ContentBlock[] // For interleaved content
   timestamp: Date
   isStreaming?: boolean
-  toolCalls?: string[]
 }
 
 export interface UsageStats {
@@ -36,6 +51,7 @@ export interface UseClaudeReturn {
   usage: UsageStats
   streamingText: string
   activeProcessId: string | null
+  toolActivities: ToolActivity[]
   sendMessage: (prompt: string) => Promise<void>
   sendMessageStreaming: (prompt: string) => Promise<void>
   cancel: () => Promise<void>
@@ -56,12 +72,23 @@ export function useClaude(options: UseClaudeOptions): UseClaudeReturn {
   })
   const [streamingText, setStreamingText] = useState('')
   const [activeProcessId, setActiveProcessId] = useState<string | null>(null)
+  const [toolActivities, setToolActivities] = useState<ToolActivity[]>([])
 
   const optionsRef = useRef(options)
   optionsRef.current = options
 
   // Track active process ID in a ref to avoid race conditions
   const activeProcessRef = useRef<string | null>(null)
+
+  // Track tool activities by their block index for updating
+  const toolBlocksRef = useRef<Map<number, string>>(new Map())
+
+  // Track content blocks for interleaved rendering
+  const contentBlocksRef = useRef<ContentBlock[]>([])
+  const lastTextPositionRef = useRef<number>(0) // Position in streamingText when last tool started
+
+  // Track seen tool IDs to prevent duplicates (ref for immediate access)
+  const seenToolIdsRef = useRef<Set<string>>(new Set())
 
   // Set up event listeners once on mount
   useEffect(() => {
@@ -94,16 +121,149 @@ export function useClaude(options: UseClaudeOptions): UseClaudeReturn {
       }
     })
 
+    // Parse stream events for tool activity tracking
+    const cleanupStreamEvent = window.electron.claude.onStreamEvent(({ processId, event }) => {
+      if (activeProcessRef.current && processId !== activeProcessRef.current) return
+
+      const evt = event as Record<string, unknown>
+
+      // Uncomment for debugging stream events:
+      // console.log('[Stream Event]', evt.type, evt.subtype || '', evt)
+
+      // Handle different event types from Claude CLI stream-json output
+      // The format varies, so we check multiple possible structures
+
+      // Handle assistant/turn events that contain tool info
+      // Note: We skip content_block events since assistant events give us complete tool info
+      if (evt.type === 'assistant' && evt.message) {
+        const message = evt.message as Record<string, unknown>
+        const content = message.content as Array<Record<string, unknown>> | undefined
+        if (content) {
+          for (const block of content) {
+            if (block.type === 'tool_use') {
+              const toolId = (block.id as string) || `tool-${Date.now()}`
+              const toolName = (block.name as string) || 'Unknown Tool'
+
+              // Check if we already have this tool using ref for immediate duplicate detection
+              if (seenToolIdsRef.current.has(toolId)) continue
+
+              // Mark as seen immediately (before async state update)
+              seenToolIdsRef.current.add(toolId)
+
+              setToolActivities(prev => {
+                // Double-check in state as well
+                if (prev.some(t => t.id === toolId)) return prev
+
+                // We need to capture the current streaming text length for positioning
+                // Use a synchronous approach by reading from a shared ref
+                let textPosition = 0
+
+                const newTool: ToolActivity = {
+                  id: toolId,
+                  toolName,
+                  status: 'running',
+                  input: block.input as Record<string, unknown> | undefined,
+                  startTime: new Date(),
+                  textPosition: 0, // Will be updated below
+                }
+
+                // Only add to contentBlocks if not already there
+                const alreadyInBlocks = contentBlocksRef.current.some(
+                  b => b.type === 'tool' && b.activity.id === toolId
+                )
+                if (!alreadyInBlocks) {
+                  // Capture any text that came before this tool
+                  setStreamingText(currentText => {
+                    textPosition = currentText.length
+                    newTool.textPosition = textPosition
+
+                    const textSinceLastTool = currentText.slice(lastTextPositionRef.current)
+                    if (textSinceLastTool.trim()) {
+                      contentBlocksRef.current.push({ type: 'text', text: textSinceLastTool })
+                    }
+                    // Add the tool block
+                    contentBlocksRef.current.push({ type: 'tool', activity: newTool })
+                    lastTextPositionRef.current = currentText.length
+                    return currentText
+                  })
+                }
+
+                return [...prev, newTool]
+              })
+            }
+          }
+        }
+      }
+
+      // Handle tool results from 'user' events (tool_result in message.content)
+      if (evt.type === 'user' && evt.message) {
+        const message = evt.message as Record<string, unknown>
+        const content = message.content as Array<Record<string, unknown>> | undefined
+        if (content) {
+          for (const block of content) {
+            if (block.type === 'tool_result' && block.tool_use_id) {
+              const toolUseId = block.tool_use_id as string
+              setToolActivities(prev => prev.map(t =>
+                t.id === toolUseId
+                  ? { ...t, status: 'completed' as const, endTime: new Date() }
+                  : t
+              ))
+            }
+          }
+        }
+      }
+
+      // Handle final result - mark any remaining tools as complete
+      if (evt.type === 'result' && evt.subtype === 'success') {
+        setToolActivities(prev => prev.map(t =>
+          t.status === 'running' || t.status === 'pending'
+            ? { ...t, status: 'completed', endTime: new Date() }
+            : t
+        ))
+      }
+    })
+
     return () => {
       cleanupStreamText()
       cleanupStreamEnd()
       cleanupStderr()
+      cleanupStreamEvent()
     }
   }, []) // Empty deps - set up once
 
   // Finalize streaming message when streaming ends
   useEffect(() => {
     if (!isStreaming && streamingText && activeProcessId) {
+      // Capture any remaining text after the last tool
+      const remainingText = streamingText.slice(lastTextPositionRef.current)
+      if (remainingText.trim()) {
+        contentBlocksRef.current.push({ type: 'text', text: remainingText })
+      }
+
+      // Deduplicate tool blocks by ID
+      const seenToolIds = new Set<string>()
+      const deduplicatedBlocks = contentBlocksRef.current.filter(block => {
+        if (block.type === 'tool') {
+          if (seenToolIds.has(block.activity.id)) {
+            return false
+          }
+          seenToolIds.add(block.activity.id)
+        }
+        return true
+      })
+
+      // Update tool activities in content blocks with their final state
+      const finalToolActivities = toolActivities
+      const finalContentBlocks = deduplicatedBlocks.map(block => {
+        if (block.type === 'tool') {
+          const updatedActivity = finalToolActivities.find(t => t.id === block.activity.id)
+          if (updatedActivity) {
+            return { type: 'tool' as const, activity: updatedActivity }
+          }
+        }
+        return block
+      })
+
       setMessages((prev) => {
         // Find and update the streaming message
         const updated = prev.map((msg) => {
@@ -111,6 +271,7 @@ export function useClaude(options: UseClaudeOptions): UseClaudeReturn {
             return {
               ...msg,
               content: streamingText,
+              contentBlocks: finalContentBlocks.length > 0 ? finalContentBlocks : undefined,
               isStreaming: false,
             }
           }
@@ -120,8 +281,10 @@ export function useClaude(options: UseClaudeOptions): UseClaudeReturn {
       })
       setStreamingText('')
       setActiveProcessId(null)
+      contentBlocksRef.current = []
+      lastTextPositionRef.current = 0
     }
-  }, [isStreaming, streamingText, activeProcessId])
+  }, [isStreaming, streamingText, activeProcessId, toolActivities])
 
   const generateId = () => `msg-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`
 
@@ -216,6 +379,11 @@ export function useClaude(options: UseClaudeOptions): UseClaudeReturn {
     setIsStreaming(true)
     setError(null)
     setStreamingText('')
+    setToolActivities([])
+    toolBlocksRef.current.clear()
+    contentBlocksRef.current = []
+    lastTextPositionRef.current = 0
+    seenToolIdsRef.current.clear()
 
     // Add user message
     const userMessage: Message = {
@@ -305,6 +473,9 @@ export function useClaude(options: UseClaudeOptions): UseClaudeReturn {
     setError(null)
     setStreamingText('')
     setActiveProcessId(null)
+    setToolActivities([])
+    toolBlocksRef.current.clear()
+    seenToolIdsRef.current.clear()
   }, [])
 
   const clearError = useCallback(() => {
@@ -320,6 +491,7 @@ export function useClaude(options: UseClaudeOptions): UseClaudeReturn {
     usage,
     streamingText,
     activeProcessId,
+    toolActivities,
     sendMessage,
     sendMessageStreaming,
     cancel,

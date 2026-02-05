@@ -1,7 +1,7 @@
 import { useRef, useEffect } from 'react'
 import { ChatMessage } from './ChatMessage'
 import { ChatInput } from './ChatInput'
-import type { Message } from '../hooks/useClaude'
+import type { Message, ToolActivity } from '../hooks/useClaude'
 
 interface ChatInterfaceProps {
   messages: Message[]
@@ -9,11 +9,13 @@ interface ChatInterfaceProps {
   isStreaming: boolean
   error: string | null
   streamingText: string
+  toolActivities: ToolActivity[]
   onSend: (message: string) => void
   onCancel: () => void
   onClearError: () => void
   disabled?: boolean
   folderPath: string
+  defaultMessage?: string
 }
 
 export function ChatInterface({
@@ -22,21 +24,23 @@ export function ChatInterface({
   isStreaming,
   error,
   streamingText,
+  toolActivities,
   onSend,
   onCancel,
   onClearError,
   disabled,
   folderPath,
+  defaultMessage,
 }: ChatInterfaceProps) {
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const containerRef = useRef<HTMLDivElement>(null)
 
-  // Auto-scroll to bottom when new messages arrive
+  // Auto-scroll to bottom when new messages arrive or tool activities change
   useEffect(() => {
     if (messagesEndRef.current) {
       messagesEndRef.current.scrollIntoView({ behavior: 'smooth' })
     }
-  }, [messages, streamingText])
+  }, [messages, streamingText, toolActivities])
 
   return (
     <div className="flex-1 flex flex-col h-full bg-zinc-950">
@@ -88,6 +92,7 @@ export function ChatInterface({
                 key={message.id}
                 message={message}
                 streamingText={message.isStreaming ? streamingText : undefined}
+                streamingToolActivities={message.isStreaming ? toolActivities : undefined}
               />
             ))}
             <div ref={messagesEndRef} />
@@ -122,6 +127,7 @@ export function ChatInterface({
         isLoading={isLoading}
         isStreaming={isStreaming}
         disabled={disabled}
+        defaultValue={defaultMessage}
       />
     </div>
   )

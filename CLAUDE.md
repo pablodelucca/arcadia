@@ -10,6 +10,7 @@ Electron desktop app providing a full GUI for Claude Code CLI.
 - Chat interface with Claude Code (JSON and streaming modes)
 - Session management (persist, resume, fork conversations)
 - Real-time streaming responses with text deltas
+- **Inline tool activity display** - shows file reads, edits, searches interleaved with text
 - Token usage tracking (input/output/total)
 - Model selection (Sonnet, Opus, Haiku)
 - Permission mode selection (Ask, Accept Edits, Accept All, Plan)
@@ -28,10 +29,10 @@ arcadia/
 │   ├── App.tsx              # Main app layout (Sidebar + ChatInterface)
 │   ├── electron.d.ts        # TypeScript types for all IPC APIs
 │   ├── hooks/
-│   │   └── useClaude.ts     # React hook: messages, streaming, sessions
+│   │   └── useClaude.ts     # React hook: messages, streaming, sessions, tool tracking
 │   └── components/
 │       ├── ChatInterface.tsx  # Chat area with messages and input
-│       ├── ChatMessage.tsx    # Message bubble (supports streaming)
+│       ├── ChatMessage.tsx    # Message bubble with interleaved tool activities
 │       ├── ChatInput.tsx      # Multi-line input with keyboard shortcuts
 │       └── Sidebar.tsx        # Settings, session info, token usage
 └── .claude/skills/claude-code-reference/  # CLI documentation for reference
@@ -76,6 +77,15 @@ UI Update ← Hook State ← IPC Events ← stdout parsing ← claude -p --outpu
 **Response Parsing:**
 - Claude CLI returns `result` as a STRING directly, not `{ content: [...] }`
 - Always check: `typeof response.result === 'string'` before parsing
+
+**Tool Activity Tracking:**
+- Tool activities are parsed from `stream-json` events (`assistant` with `tool_use`, `user` with `tool_result`)
+- Uses `seenToolIdsRef` for immediate duplicate detection (before async state updates)
+- `contentBlocksRef` tracks interleaved text/tool blocks with insertion positions (`textPosition`)
+- During streaming: text is split at tool insertion points for proper interleaving
+- On finalization: content blocks are deduplicated and tool statuses updated
+- Tool UI shows: status indicator (pulsing=running, green=done), icon, label, file path, duration
+- Expandable tool results (collapsed by default, click to expand)
 
 **Current Limitations:**
 - Token usage only tracked in non-streaming mode (streaming doesn't parse usage stats yet)
