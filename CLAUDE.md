@@ -4,26 +4,30 @@
 
 > **Keep this section updated as features are added or changed.**
 
-The app has a single button that spawns a new CMD terminal window running `claude` (Claude Code CLI).
+Electron desktop app for spawning and managing Claude Code terminal instances.
 
-- Frontend: Button labeled "Spawn Claude Terminal" that calls `POST /terminals/spawn`
-- Backend: `TerminalsModule` with endpoint that uses `child_process.spawn` to open a detached CMD window
+- Folder picker: Native OS file dialog to select working directory
+- Terminal spawning: Opens CMD window running `claude` in the selected directory
 
 ## Architecture
 
-Monorepo structure using npm workspaces:
+Standard Electron app with React frontend:
 
 ```
-packages/
-├── client/   # React + Vite + TypeScript (@arcadia/client)
-└── server/   # NestJS (@arcadia/server)
+arcadia/
+├── electron/          # Electron main process + preload
+│   ├── main.ts        # Main process - spawns terminals, native dialogs
+│   └── preload.ts     # IPC bridge to renderer
+├── src/               # React + Vite + TypeScript
+│   ├── App.tsx        # Main React component
+│   ├── main.tsx       # React entry point
+│   ├── globals.css    # Global styles (Tailwind)
+│   └── electron.d.ts  # TypeScript types for Electron IPC
+├── dist-electron/     # Compiled Electron files (generated)
+└── dist/              # Built React app (generated)
 ```
 
-**Ports:**
-- Frontend: http://localhost:5173
-- Backend: http://localhost:3000
-
-**Run both:** `npm run dev` from root
+**Run:** `pnpm dev` from root
 
 ## Styling
 
@@ -31,9 +35,37 @@ Using **Tailwind CSS v4** with the Vite plugin (`@tailwindcss/vite`).
 
 For any questions about Tailwind v4 syntax or features, use Context7 to fetch up-to-date documentation.
 
-## Port Conflicts
+## Electron IPC
 
-If a port is already in use, do NOT run on a different port. Instead:
-1. Check what process is using the port
-2. Report the PID and process name to the user
-3. Ask if it can be killed
+Communication between renderer (React) and main process uses IPC:
+
+```typescript
+// In React (renderer):
+window.electron.pickFolder()
+window.electron.spawnTerminal(cwd)
+
+// Handlers defined in electron/main.ts
+```
+
+## Testing Electron
+
+Playwright has experimental Electron support. For MCP-based automation, use:
+- `@robertn702/playwright-mcp-electron` - enhanced MCP server for Electron
+
+## Node.js Version
+
+Requires Node.js 22.x or later (using v24.13.0).
+
+## Package Manager
+
+Using **pnpm**. Do not use npm or yarn.
+
+```bash
+pnpm install    # Install dependencies
+pnpm dev        # Run in development
+pnpm build      # Build for production
+```
+
+## Before Starting Dev
+
+Before running `pnpm dev`, check if the app is already running to avoid conflicts.

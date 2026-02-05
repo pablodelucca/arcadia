@@ -1,5 +1,27 @@
+# Dependencies
 node_modules/
+
+# Build outputs
 dist/
+dist-electron/
+
+# Environment
 .env
+.env.local
+.env.*.local
+
+# Logs
 *.log
-.claude/
+npm-debug.log*
+
+# Editor
+.vscode/*
+!.vscode/extensions.json
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Claude Code
+/.claude
