@@ -11,8 +11,10 @@ dist-electron/
 .env.*.local
 
 # Logs
+logs/
 *.log
 npm-debug.log*
+nul
 
 # Editor
 .vscode/*
@@ -25,3 +27,4 @@ Thumbs.db
 
 # Claude Code
 /.claude
+/.playwright-mcp

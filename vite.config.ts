@@ -12,7 +12,7 @@ export default defineConfig({
       {
         entry: 'electron/main.ts',
         onstart(args) {
-          args.startup()
+          args.startup(['.', '--remote-debugging-port=9222'])
         },
         vite: {
           build: {
