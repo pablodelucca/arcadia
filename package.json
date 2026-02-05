@@ -1,0 +1,19 @@
+{
+  "name": "arcadia",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Multi-agent system GUI for managing Claude Code instances",
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "concurrently \"npm run dev:server\" \"npm run dev:client\"",
+    "dev:server": "npm run start:dev --workspace=@arcadia/server",
+    "dev:client": "npm run dev --workspace=@arcadia/client",
+    "build": "npm run build --workspaces",
+    "start": "npm run start:prod --workspace=@arcadia/server"
+  },
+  "devDependencies": {
+    "concurrently": "^8.2.2"
+  }
+}
